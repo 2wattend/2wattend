@@ -1,0 +1,17 @@
+{
+    "require": {
+        "cmsilex/cmsilex": "dev-master"
+    },
+    "minimum-stability":"dev",
+    "prefer-stable":true,
+    "repositories": [
+        {
+            "type": "git",
+            "url":  "git@github.com:cmsilex/cmsilex.git"
+        },
+        {
+            "type": "git",
+            "url":  "git@github.com:cmsilex/textile.git"
+        }
+    ]
+}

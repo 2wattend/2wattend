@@ -1,0 +1,8 @@
+/vendor
+/provision
+/storage
+.idea
+.vagrant
+auth.json
+adminer.php
+Vagrantfile
