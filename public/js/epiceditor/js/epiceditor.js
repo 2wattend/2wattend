@@ -13,7 +13,7 @@
   function _applyAttrs(context, attrs) {
     for (var attr in attrs) {
       if (attrs.hasOwnProperty(attr)) {
-        context.setAttribute(attr, attrs[attr]);
+        context[attr] = attrs[attr];
       }
     }
   }
@@ -407,16 +407,6 @@
     else if (typeof self.settings.container == 'object') {
       self.element = self.settings.container;
     }
-
-    if (typeof self.settings.textarea == 'undefined' && typeof self.element != 'undefined') {
-      var textareas = self.element.getElementsByTagName('textarea');
-      if (textareas.length > 0) {
-        self.settings.textarea = textareas[0];
-        _applyStyles(self.settings.textarea, {
-          display: 'none'
-        });
-      }
-    }
     
     // Figure out the file name. If no file name is given we'll use the ID.
     // If there's no ID either we'll use a namespaced file name that's incremented
@@ -572,26 +562,20 @@
                 '</div>'
     
     // The previewer is just an empty box for the generated HTML to go into
-    , previewer: '<div id="epiceditor-preview" class="epiceditor-preview"></div>'
+    , previewer: '<div id="epiceditor-preview"></div>'
     , editor: '<!doctype HTML>'
     };
 
     // Write an iframe and then select it for the editor
-    iframeElement = document.createElement('iframe');
-    _applyAttrs(iframeElement, {
-      scrolling: 'no',
-      frameborder: 0,
-      id: self._instanceId
-    });
-    
-    
-    self.element.appendChild(iframeElement);
+    self.element.innerHTML = '<iframe scrolling="no" frameborder="0" id= "' + self._instanceId + '"></iframe>';
 
     // Because browsers add things like invisible padding and margins and stuff
     // to iframes, we need to set manually set the height so that the height
     // doesn't keep increasing (by 2px?) every time reflow() is called.
     // FIXME: Figure out how to fix this without setting this
     self.element.style.height = self.element.offsetHeight + 'px';
+
+    iframeElement = document.getElementById(self._instanceId);
     
     // Store a reference to the iframeElement itself
     self.iframeElement = iframeElement;
@@ -700,20 +684,17 @@
 
     // TODO: Move into fullscreen setup function (_setupFullscreen)
     _elementStates = {}
-    self._goFullscreen = function (el, callback) {
-      callback = callback || function () {};
-      var wait = 0;
+    self._goFullscreen = function (el) {
       this._fixScrollbars('auto');
 
       if (self.is('fullscreen')) {
-        self._exitFullscreen(el, callback);
+        self._exitFullscreen(el);
         return;
       }
 
       if (nativeFs) {
         if (nativeFsWebkit) {
           el.webkitRequestFullScreen();
-          wait = 750;
         }
         else if (nativeFsMoz) {
           el.mozRequestFullScreen();
@@ -725,99 +706,85 @@
 
       _isInEdit = self.is('edit');
 
+      // Set the state of EE in fullscreen
+      // We set edit and preview to true also because they're visible
+      // we might want to allow fullscreen edit mode without preview (like a "zen" mode)
+      self._eeState.fullscreen = true;
+      self._eeState.edit = true;
+      self._eeState.preview = true;
 
-      // Why does this need to be in a randomly "750"ms setTimeout? WebKit's
-      // implementation of fullscreen seem to trigger the webkitfullscreenchange
-      // event _after_ everything is done. Instead, it triggers _during_ the
-      // transition. This means calculations of what's half, 100%, etc are wrong
-      // so to combat this we throw down the hammer with a setTimeout and wait
-      // to trigger our calculation code.
-      // See: https://code.google.com/p/chromium/issues/detail?id=181116
-      setTimeout(function () {
-        // Set the state of EE in fullscreen
-        // We set edit and preview to true also because they're visible
-        // we might want to allow fullscreen edit mode without preview (like a "zen" mode)
-        self._eeState.fullscreen = true;
-        self._eeState.edit = true;
-        self._eeState.preview = true;
+      // Cache calculations
+      var windowInnerWidth = window.innerWidth
+        , windowInnerHeight = window.innerHeight
+        , windowOuterWidth = window.outerWidth
+        , windowOuterHeight = window.outerHeight;
 
-        // Cache calculations
-        var windowInnerWidth = window.innerWidth
-          , windowInnerHeight = window.innerHeight
-          , windowOuterWidth = window.outerWidth
-          , windowOuterHeight = window.outerHeight;
+      // Without this the scrollbars will get hidden when scrolled to the bottom in faux fullscreen (see #66)
+      if (!nativeFs) {
+        windowOuterHeight = window.innerHeight;
+      }
 
-        // Without this the scrollbars will get hidden when scrolled to the bottom in faux fullscreen (see #66)
-        if (!nativeFs) {
-          windowOuterHeight = window.innerHeight;
-        }
+      // This MUST come first because the editor is 100% width so if we change the width of the iframe or wrapper
+      // the editor's width wont be the same as before
+      _elementStates.editorIframe = _saveStyleState(self.editorIframe, 'save', {
+        'width': windowOuterWidth / 2 + 'px'
+      , 'height': windowOuterHeight + 'px'
+      , 'float': 'left' // Most browsers
+      , 'cssFloat': 'left' // FF
+      , 'styleFloat': 'left' // Older IEs
+      , 'display': 'block'
+      , 'position': 'static'
+      , 'left': ''
+      });
 
-        // This MUST come first because the editor is 100% width so if we change the width of the iframe or wrapper
-        // the editor's width wont be the same as before
-        _elementStates.editorIframe = _saveStyleState(self.editorIframe, 'save', {
-          'width': windowOuterWidth / 2 + 'px'
-        , 'height': windowOuterHeight + 'px'
-        , 'float': 'left' // Most browsers
-        , 'cssFloat': 'left' // FF
-        , 'styleFloat': 'left' // Older IEs
-        , 'display': 'block'
-        , 'position': 'static'
-        , 'left': ''
-        });
+      // the previewer
+      _elementStates.previewerIframe = _saveStyleState(self.previewerIframe, 'save', {
+        'width': windowOuterWidth / 2 + 'px'
+      , 'height': windowOuterHeight + 'px'
+      , 'float': 'right' // Most browsers
+      , 'cssFloat': 'right' // FF
+      , 'styleFloat': 'right' // Older IEs
+      , 'display': 'block'
+      , 'position': 'static'
+      , 'left': ''
+      });
 
-        // the previewer
-        _elementStates.previewerIframe = _saveStyleState(self.previewerIframe, 'save', {
-          'width': windowOuterWidth / 2 + 'px'
-        , 'height': windowOuterHeight + 'px'
-        , 'float': 'right' // Most browsers
-        , 'cssFloat': 'right' // FF
-        , 'styleFloat': 'right' // Older IEs
-        , 'display': 'block'
-        , 'position': 'static'
-        , 'left': ''
-        });
+      // Setup the containing element CSS for fullscreen
+      _elementStates.element = _saveStyleState(self.element, 'save', {
+        'position': 'fixed'
+      , 'top': '0'
+      , 'left': '0'
+      , 'width': '100%'
+      , 'z-index': '9999' // Most browsers
+      , 'zIndex': '9999' // Firefox
+      , 'border': 'none'
+      , 'margin': '0'
+      // Should use the base styles background!
+      , 'background': _getStyle(self.editor, 'background-color') // Try to hide the site below
+      , 'height': windowInnerHeight + 'px'
+      });
 
-        // Setup the containing element CSS for fullscreen
-        _elementStates.element = _saveStyleState(self.element, 'save', {
-          'position': 'fixed'
-        , 'top': '0'
-        , 'left': '0'
-        , 'width': '100%'
-        , 'z-index': '9999' // Most browsers
-        , 'zIndex': '9999' // Firefox
-        , 'border': 'none'
-        , 'margin': '0'
-        // Should use the base styles background!
-        , 'background': _getStyle(self.editor, 'background-color') // Try to hide the site below
-        , 'height': windowInnerHeight + 'px'
-        });
+      // The iframe element
+      _elementStates.iframeElement = _saveStyleState(self.iframeElement, 'save', {
+        'width': windowOuterWidth + 'px'
+      , 'height': windowInnerHeight + 'px'
+      });
 
-        // The iframe element
-        _elementStates.iframeElement = _saveStyleState(self.iframeElement, 'save', {
-          'width': windowOuterWidth + 'px'
-        , 'height': windowInnerHeight + 'px'
-        });
+      // ...Oh, and hide the buttons and prevent scrolling
+      utilBtns.style.visibility = 'hidden';
 
-        // ...Oh, and hide the buttons and prevent scrolling
-        utilBtns.style.visibility = 'hidden';
+      if (!nativeFs) {
+        document.body.style.overflow = 'hidden';
+      }
 
-        if (!nativeFs) {
-          document.body.style.overflow = 'hidden';
-        }
+      self.preview();
 
-        self.preview();
+      self.focus();
 
-        self.focus();
-
-        self.emit('fullscreenenter');
-
-        callback.call(self);
-      }, wait);
-
+      self.emit('fullscreenenter');
     };
 
-    self._exitFullscreen = function (el, callback) {
-      callback = callback || function () {};
+    self._exitFullscreen = function (el) {
       this._fixScrollbars();
 
       _saveStyleState(self.element, 'apply', _elementStates.element);
@@ -864,8 +831,6 @@
       self.reflow();
 
       self.emit('fullscreenexit');
-
-      callback.call(self);
     };
 
     // This setups up live previews by triggering preview() IF in fullscreen on keyup
@@ -961,7 +926,6 @@
     function shortcutHandler(e) {
       if (e.keyCode == self.settings.shortcut.modifier) { isMod = true } // check for modifier press(default is alt key), save to var
       if (e.keyCode == 17) { isCtrl = true } // check for ctrl/cmnd press, in order to catch ctrl/cmnd + s
-      if (e.keyCode == 18) { isCtrl = false }
 
       // Check for alt+p and make sure were not in fullscreen - default shortcut to switch to preview
       if (isMod === true && e.keyCode == self.settings.shortcut.preview && !self.is('fullscreen')) {
@@ -1149,6 +1113,7 @@
 
   EpicEditor.prototype._setupTextareaSync = function () {
     var self = this
+      , textareaFileName = self.settings.file.name
       , _syncTextarea;
 
     // Even if autoSave is false, we want to make sure to keep the textarea synced
@@ -1167,10 +1132,7 @@
       // This only happens for draft files. Probably has something to do with
       // the fact draft files haven't been saved by the time this is called.
       // TODO: Add test for this case.
-      // Get the file.name each time as it can change. DO NOT save this to a
-      // var outside of this closure or the editor will stop syncing when the
-      // file is changed with importFile or open.
-      self._textareaElement.value = self.exportFile(self.settings.file.name, 'text', true) || self.settings.file.defaultContent;
+      self._textareaElement.value = self.exportFile(textareaFileName, 'text', true) || self.settings.file.defaultContent;
     }
 
     if (typeof self.settings.textarea == 'string') {
@@ -1194,7 +1156,7 @@
     // If the developer wants drafts to be recoverable they should check if
     // the local file in localStorage's modified date is newer than the server.
     if (self._textareaElement.value !== '') {
-      self.importFile(self.settings.file.name, self._textareaElement.value);
+      self.importFile(textareaFileName, self._textareaElement.value);
 
       // manually save draft after import so there is no delay between the
       // import and exporting in _syncTextarea. Without this, _syncTextarea
@@ -1207,8 +1169,6 @@
 
     // Make sure to keep it updated
     self.on('__update', _syncTextarea);
-    self.on('__create', _syncTextarea);
-    self.on('__save', _syncTextarea);
   }
 
   /**
@@ -1248,6 +1208,7 @@
     callback = callback || function () {};
 
     if (self.settings.textarea) {
+      self._textareaElement.value = "";
       self.removeListener('__update');
     }
 
@@ -1379,13 +1340,9 @@
    * Puts the editor into fullscreen mode
    * @returns {object} EpicEditor will be returned
    */
-  EpicEditor.prototype.enterFullscreen = function (callback) {
-    callback = callback || function () {};
-    if (this.is('fullscreen')) {
-      callback.call(this);
-      return this;
-    }
-    this._goFullscreen(this.iframeElement, callback);
+  EpicEditor.prototype.enterFullscreen = function () {
+    if (this.is('fullscreen')) { return this; }
+    this._goFullscreen(this.iframeElement);
     return this;
   }
 
@@ -1393,13 +1350,9 @@
    * Closes fullscreen mode if opened
    * @returns {object} EpicEditor will be returned
    */
-  EpicEditor.prototype.exitFullscreen = function (callback) {
-    callback = callback || function () {};
-    if (!this.is('fullscreen')) {
-      callback.call(this);
-      return this;
-    }
-    this._exitFullscreen(this.iframeElement, callback);
+  EpicEditor.prototype.exitFullscreen = function () {
+    if (!this.is('fullscreen')) { return this; }
+    this._exitFullscreen(this.iframeElement);
     return this;
   }
 
@@ -1508,7 +1461,6 @@
     var self = this
       , storage
       , isUpdate = false
-      , isNew = false
       , file = self.settings.file.name
       , previewDraftName = ''
       , data = this._storage[previewDraftName + self.settings.localStorageName]
@@ -1530,7 +1482,6 @@
       // If the file doesn't exist we need to create it
       if (storage[file] === undefined) {
         storage[file] = self._defaultFileSchema();
-        isNew = true;
       }
 
       // If it does, we need to check if the content is different and
@@ -1547,17 +1498,10 @@
       storage[file].content = content;
       this._storage[previewDraftName + self.settings.localStorageName] = JSON.stringify(storage);
 
-      // If it's a new file, send a create event as well as a private one for
-      // use internally.
-      if (isNew) {
-        self.emit('create');
-        self.emit('__create');
-      }
-
-      // After the content is actually changed, emit update so it emits the
-      // updated content. Also send a private event for interal use.
+      // After the content is actually changed, emit update so it emits the updated content
       if (isUpdate) {
         self.emit('update');
+        // Emit a private update event so it can't get accidentally removed
         self.emit('__update');
       }
 
@@ -1566,7 +1510,6 @@
       }
       else if (!_isPreviewDraft) {
         this.emit('save');
-        self.emit('__save');
       }
     }
 
@@ -1620,16 +1563,25 @@
    * @returns {object} EpicEditor will be returned
    */
   EpicEditor.prototype.importFile = function (name, content, kind, meta) {
-    var self = this;
+    var self = this
+      , isNew = false;
 
     name = name || self.settings.file.name;
     content = content || '';
     kind = kind || 'md';
     meta = meta || {};
   
+    if (JSON.parse(this._storage[self.settings.localStorageName])[name] === undefined) {
+      isNew = true;
+    }
+
     // Set our current file to the new file and update the content
     self.settings.file.name = name;
     _setText(self.editor, content);
+
+    if (isNew) {
+      self.emit('create');
+    }
 
     self.save();
 
@@ -1891,16 +1843,12 @@
   // Used to store information to be shared across editors
   EpicEditor._data = {};
 
-  if (typeof window.define === 'function' && window.define.amd) {
-    window.define(function () { return EpicEditor; });
-  } else {
-    window.EpicEditor = EpicEditor;
-  }
+  window.EpicEditor = EpicEditor;
 })(window);
 
 /**
  * marked - a markdown parser
- * Copyright (c) 2011-2014, Christopher Jeffrey. (MIT Licensed)
+ * Copyright (c) 2011-2013, Christopher Jeffrey. (MIT Licensed)
  * https://github.com/chjj/marked
  */
 
@@ -1917,13 +1865,13 @@ var block = {
   hr: /^( *[-*_]){3,} *(?:\n+|$)/,
   heading: /^ *(#{1,6}) *([^\n]+?) *#* *(?:\n+|$)/,
   nptable: noop,
-  lheading: /^([^\n]+)\n *(=|-){2,} *(?:\n+|$)/,
-  blockquote: /^( *>[^\n]+(\n(?!def)[^\n]+)*\n*)+/,
-  list: /^( *)(bull) [\s\S]+?(?:hr|def|\n{2,}(?! )(?!\1bull )\n*|\s*$)/,
-  html: /^ *(?:comment *(?:\n|\s*$)|closed *(?:\n{2,}|\s*$)|closing *(?:\n{2,}|\s*$))/,
-  def: /^ *\[([^\]]+)\]: *<?([^\s>]+)>?(?: +["(]([^\n]+)[")])? *(?:\n+|$)/,
+  lheading: /^([^\n]+)\n *(=|-){3,} *\n*/,
+  blockquote: /^( *>[^\n]+(\n[^\n]+)*\n*)+/,
+  list: /^( *)(bull) [\s\S]+?(?:hr|\n{2,}(?! )(?!\1bull )\n*|\s*$)/,
+  html: /^ *(?:comment|closed|closing) *(?:\n{2,}|\s*$)/,
+  def: /^ *\[([^\]]+)\]: *([^\s]+)(?: +["(]([^\n]+)[")])? *(?:\n+|$)/,
   table: noop,
-  paragraph: /^((?:[^\n]+\n?(?!hr|heading|lheading|blockquote|tag|def))+)\n*/,
+  paragraph: /^([^\n]+\n?(?!hr|heading|lheading|blockquote|tag|def))+\n*/,
   text: /^[^\n]+/
 };
 
@@ -1935,18 +1883,13 @@ block.item = replace(block.item, 'gm')
 
 block.list = replace(block.list)
   (/bull/g, block.bullet)
-  ('hr', '\\n+(?=\\1?(?:[-*_] *){3,}(?:\\n+|$))')
-  ('def', '\\n+(?=' + block.def.source + ')')
-  ();
-
-block.blockquote = replace(block.blockquote)
-  ('def', block.def)
+  ('hr', /\n+(?=(?: *[-*_]){3,} *(?:\n+|$))/)
   ();
 
 block._tag = '(?!(?:'
   + 'a|em|strong|small|s|cite|q|dfn|abbr|data|time|code'
   + '|var|samp|kbd|sub|sup|i|b|u|mark|ruby|rt|rp|bdi|bdo'
-  + '|span|br|wbr|ins|del|img)\\b)\\w+(?!:/|[^\\w\\s@]*@)\\b';
+  + '|span|br|wbr|ins|del|img)\\b)\\w+(?!:/|@)\\b';
 
 block.html = replace(block.html)
   ('comment', /<!--[\s\S]*?-->/)
@@ -1975,14 +1918,12 @@ block.normal = merge({}, block);
  */
 
 block.gfm = merge({}, block.normal, {
-  fences: /^ *(`{3,}|~{3,}) *(\S+)? *\n([\s\S]+?)\s*\1 *(?:\n+|$)/,
+  fences: /^ *(`{3,}|~{3,}) *(\w+)? *\n([\s\S]+?)\s*\1 *(?:\n+|$)/,
   paragraph: /^/
 });
 
 block.gfm.paragraph = replace(block.paragraph)
-  ('(?!', '(?!'
-    + block.gfm.fences.source.replace('\\1', '\\2') + '|'
-    + block.list.source.replace('\\1', '\\3') + '|')
+  ('(?!', '(?!' + block.gfm.fences.source.replace('\\1', '\\2') + '|')
   ();
 
 /**
@@ -2046,13 +1987,11 @@ Lexer.prototype.lex = function(src) {
  * Lexing
  */
 
-Lexer.prototype.token = function(src, top, bq) {
+Lexer.prototype.token = function(src, top) {
   var src = src.replace(/^ +$/gm, '')
     , next
     , loose
     , cap
-    , bull
-    , b
     , item
     , space
     , i
@@ -2169,7 +2108,7 @@ Lexer.prototype.token = function(src, top, bq) {
       // Pass `top` to keep the current
       // "toplevel" state. This is exactly
       // how markdown.pl works.
-      this.token(cap, top, true);
+      this.token(cap, top);
 
       this.tokens.push({
         type: 'blockquote_end'
@@ -2181,11 +2120,10 @@ Lexer.prototype.token = function(src, top, bq) {
     // list
     if (cap = this.rules.list.exec(src)) {
       src = src.substring(cap[0].length);
-      bull = cap[2];
 
       this.tokens.push({
         type: 'list_start',
-        ordered: bull.length > 1
+        ordered: isFinite(cap[2])
       });
 
       // Get each top-level item.
@@ -2212,22 +2150,12 @@ Lexer.prototype.token = function(src, top, bq) {
             : item.replace(/^ {1,4}/gm, '');
         }
 
-        // Determine whether the next list item belongs here.
-        // Backpedal if it does not belong in this list.
-        if (this.options.smartLists && i !== l - 1) {
-          b = block.bullet.exec(cap[i + 1])[0];
-          if (bull !== b && !(bull.length > 1 && b.length > 1)) {
-            src = cap.slice(i + 1).join('\n') + src;
-            i = l - 1;
-          }
-        }
-
         // Determine whether item is loose or not.
         // Use: /(^|\n)(?! )[^\n]+\n\n(?!\s*$)/
         // for discount behavior.
         loose = next || /\n\n(?!\s*$)/.test(item);
         if (i !== l - 1) {
-          next = item.charAt(item.length - 1) === '\n';
+          next = item[item.length-1] === '\n';
           if (!loose) loose = next;
         }
 
@@ -2238,7 +2166,7 @@ Lexer.prototype.token = function(src, top, bq) {
         });
 
         // Recurse.
-        this.token(item, false, bq);
+        this.token(item, false);
 
         this.tokens.push({
           type: 'list_item_end'
@@ -2259,14 +2187,14 @@ Lexer.prototype.token = function(src, top, bq) {
         type: this.options.sanitize
           ? 'paragraph'
           : 'html',
-        pre: cap[1] === 'pre' || cap[1] === 'script' || cap[1] === 'style',
+        pre: cap[1] === 'pre',
         text: cap[0]
       });
       continue;
     }
 
     // def
-    if ((!bq && top) && (cap = this.rules.def.exec(src))) {
+    if (top && (cap = this.rules.def.exec(src))) {
       src = src.substring(cap[0].length);
       this.tokens.links[cap[1].toLowerCase()] = {
         href: cap[2],
@@ -2314,9 +2242,7 @@ Lexer.prototype.token = function(src, top, bq) {
       src = src.substring(cap[0].length);
       this.tokens.push({
         type: 'paragraph',
-        text: cap[1].charAt(cap[1].length - 1) === '\n'
-          ? cap[1].slice(0, -1)
-          : cap[1]
+        text: cap[0]
       });
       continue;
     }
@@ -2346,7 +2272,7 @@ Lexer.prototype.token = function(src, top, bq) {
  */
 
 var inline = {
-  escape: /^\\([\\`*{}\[\]()#+\-.!_>])/,
+  escape: /^\\([\\`*{}\[\]()#+\-.!_>|])/,
   autolink: /^<([^ >]+(@|:\/)[^ >]+)>/,
   url: noop,
   tag: /^<!--[\s\S]*?-->|^<\/?\w+(?:"[^"]*"|'[^']*'|[^'">])*?>/,
@@ -2355,14 +2281,14 @@ var inline = {
   nolink: /^!?\[((?:\[[^\]]*\]|[^\[\]])*)\]/,
   strong: /^__([\s\S]+?)__(?!_)|^\*\*([\s\S]+?)\*\*(?!\*)/,
   em: /^\b_((?:__|[\s\S])+?)_\b|^\*((?:\*\*|[\s\S])+?)\*(?!\*)/,
-  code: /^(`+)\s*([\s\S]*?[^`])\s*\1(?!`)/,
+  code: /^(`+)([\s\S]*?[^`])\1(?!`)/,
   br: /^ {2,}\n(?!\s*$)/,
   del: noop,
   text: /^[\s\S]+?(?=[\\<!\[_*`]| {2,}\n|$)/
 };
 
-inline._inside = /(?:\[[^\]]*\]|[^\[\]]|\](?=[^\[]*\]))*/;
-inline._href = /\s*<?([\s\S]*?)>?(?:\s+['"]([\s\S]*?)['"])?\s*/;
+inline._inside = /(?:\[[^\]]*\]|[^\]]|\](?=[^\[]*\]))*/;
+inline._href = /\s*<?([^\s]*?)>?(?:\s+['"]([\s\S]*?)['"])?\s*/;
 
 inline.link = replace(inline.link)
   ('inside', inline._inside)
@@ -2393,9 +2319,9 @@ inline.pedantic = merge({}, inline.normal, {
  */
 
 inline.gfm = merge({}, inline.normal, {
-  escape: replace(inline.escape)('])', '~|])')(),
-  url: /^(https?:\/\/[^\s<]+[^<.,:;"')\]\s])/,
-  del: /^~~(?=\S)([\s\S]*?\S)~~/,
+  escape: replace(inline.escape)('])', '~])')(),
+  url: /^(https?:\/\/[^\s]+[^.,:;"')\]\s])/,
+  del: /^~{2,}([\s\S]+?)~{2,}/,
   text: replace(inline.text)
     (']|', '~]|')
     ('|', '|https?://|')
@@ -2419,8 +2345,6 @@ function InlineLexer(links, options) {
   this.options = options || marked.defaults;
   this.links = links;
   this.rules = inline.normal;
-  this.renderer = this.options.renderer || new Renderer;
-  this.renderer.options = this.options;
 
   if (!this.links) {
     throw new
@@ -2448,8 +2372,8 @@ InlineLexer.rules = inline;
  * Static Lexing/Compiling Method
  */
 
-InlineLexer.output = function(src, links, options) {
-  var inline = new InlineLexer(links, options);
+InlineLexer.output = function(src, links, opt) {
+  var inline = new InlineLexer(links, opt);
   return inline.output(src);
 };
 
@@ -2476,7 +2400,7 @@ InlineLexer.prototype.output = function(src) {
     if (cap = this.rules.autolink.exec(src)) {
       src = src.substring(cap[0].length);
       if (cap[2] === '@') {
-        text = cap[1].charAt(6) === ':'
+        text = cap[1][6] === ':'
           ? this.mangle(cap[1].substring(7))
           : this.mangle(cap[1]);
         href = this.mangle('mailto:') + text;
@@ -2484,26 +2408,29 @@ InlineLexer.prototype.output = function(src) {
         text = escape(cap[1]);
         href = text;
       }
-      out += this.renderer.link(href, null, text);
+      out += '<a href="'
+        + href
+        + '">'
+        + text
+        + '</a>';
       continue;
     }
 
     // url (gfm)
-    if (!this.inLink && (cap = this.rules.url.exec(src))) {
+    if (cap = this.rules.url.exec(src)) {
       src = src.substring(cap[0].length);
       text = escape(cap[1]);
       href = text;
-      out += this.renderer.link(href, null, text);
+      out += '<a href="'
+        + href
+        + '">'
+        + text
+        + '</a>';
       continue;
     }
 
     // tag
     if (cap = this.rules.tag.exec(src)) {
-      if (!this.inLink && /^<a /i.test(cap[0])) {
-        this.inLink = true;
-      } else if (this.inLink && /^<\/a>/i.test(cap[0])) {
-        this.inLink = false;
-      }
       src = src.substring(cap[0].length);
       out += this.options.sanitize
         ? escape(cap[0])
@@ -2514,12 +2441,10 @@ InlineLexer.prototype.output = function(src) {
     // link
     if (cap = this.rules.link.exec(src)) {
       src = src.substring(cap[0].length);
-      this.inLink = true;
       out += this.outputLink(cap, {
         href: cap[2],
         title: cap[3]
       });
-      this.inLink = false;
       continue;
     }
 
@@ -2530,55 +2455,61 @@ InlineLexer.prototype.output = function(src) {
       link = (cap[2] || cap[1]).replace(/\s+/g, ' ');
       link = this.links[link.toLowerCase()];
       if (!link || !link.href) {
-        out += cap[0].charAt(0);
+        out += cap[0][0];
         src = cap[0].substring(1) + src;
         continue;
       }
-      this.inLink = true;
       out += this.outputLink(cap, link);
-      this.inLink = false;
       continue;
     }
 
     // strong
     if (cap = this.rules.strong.exec(src)) {
       src = src.substring(cap[0].length);
-      out += this.renderer.strong(this.output(cap[2] || cap[1]));
+      out += '<strong>'
+        + this.output(cap[2] || cap[1])
+        + '</strong>';
       continue;
     }
 
     // em
     if (cap = this.rules.em.exec(src)) {
       src = src.substring(cap[0].length);
-      out += this.renderer.em(this.output(cap[2] || cap[1]));
+      out += '<em>'
+        + this.output(cap[2] || cap[1])
+        + '</em>';
       continue;
     }
 
     // code
     if (cap = this.rules.code.exec(src)) {
       src = src.substring(cap[0].length);
-      out += this.renderer.codespan(escape(cap[2], true));
+      out += '<code>'
+        + escape(cap[2], true)
+        + '</code>';
       continue;
     }
 
     // br
     if (cap = this.rules.br.exec(src)) {
       src = src.substring(cap[0].length);
-      out += this.renderer.br();
+      out += '<br>';
       continue;
     }
 
     // del (gfm)
     if (cap = this.rules.del.exec(src)) {
       src = src.substring(cap[0].length);
-      out += this.renderer.del(this.output(cap[1]));
+      out += '<del>'
+        + this.output(cap[1])
+        + '</del>';
       continue;
     }
 
     // text
     if (cap = this.rules.text.exec(src)) {
       src = src.substring(cap[0].length);
-      out += escape(this.smartypants(cap[0]));
+      out += escape(cap[0]);
       continue;
     }
 
@@ -2596,33 +2527,31 @@ InlineLexer.prototype.output = function(src) {
  */
 
 InlineLexer.prototype.outputLink = function(cap, link) {
-  var href = escape(link.href)
-    , title = link.title ? escape(link.title) : null;
-
-  return cap[0].charAt(0) !== '!'
-    ? this.renderer.link(href, title, this.output(cap[1]))
-    : this.renderer.image(href, title, escape(cap[1]));
-};
-
-/**
- * Smartypants Transformations
- */
-
-InlineLexer.prototype.smartypants = function(text) {
-  if (!this.options.smartypants) return text;
-  return text
-    // em-dashes
-    .replace(/--/g, '\u2014')
-    // opening singles
-    .replace(/(^|[-\u2014/(\[{"\s])'/g, '$1\u2018')
-    // closing singles & apostrophes
-    .replace(/'/g, '\u2019')
-    // opening doubles
-    .replace(/(^|[-\u2014/(\[{\u2018\s])"/g, '$1\u201c')
-    // closing doubles
-    .replace(/"/g, '\u201d')
-    // ellipses
-    .replace(/\.{3}/g, '\u2026');
+  if (cap[0][0] !== '!') {
+    return '<a href="'
+      + escape(link.href)
+      + '"'
+      + (link.title
+      ? ' title="'
+      + escape(link.title)
+      + '"'
+      : '')
+      + '>'
+      + this.output(cap[1])
+      + '</a>';
+  } else {
+    return '<img src="'
+      + escape(link.href)
+      + '" alt="'
+      + escape(cap[1])
+      + '"'
+      + (link.title
+      ? ' title="'
+      + escape(link.title)
+      + '"'
+      : '')
+      + '>';
+  }
 };
 
 /**
@@ -2647,149 +2576,6 @@ InlineLexer.prototype.mangle = function(text) {
 };
 
 /**
- * Renderer
- */
-
-function Renderer(options) {
-  this.options = options || {};
-}
-
-Renderer.prototype.code = function(code, lang, escaped) {
-  if (this.options.highlight) {
-    var out = this.options.highlight(code, lang);
-    if (out != null && out !== code) {
-      escaped = true;
-      code = out;
-    }
-  }
-
-  if (!lang) {
-    return '<pre><code>'
-      + (escaped ? code : escape(code, true))
-      + '\n</code></pre>';
-  }
-
-  return '<pre><code class="'
-    + this.options.langPrefix
-    + escape(lang, true)
-    + '">'
-    + (escaped ? code : escape(code, true))
-    + '\n</code></pre>\n';
-};
-
-Renderer.prototype.blockquote = function(quote) {
-  return '<blockquote>\n' + quote + '</blockquote>\n';
-};
-
-Renderer.prototype.html = function(html) {
-  return html;
-};
-
-Renderer.prototype.heading = function(text, level, raw) {
-  return '<h'
-    + level
-    + ' id="'
-    + this.options.headerPrefix
-    + raw.toLowerCase().replace(/[^\w]+/g, '-')
-    + '">'
-    + text
-    + '</h'
-    + level
-    + '>\n';
-};
-
-Renderer.prototype.hr = function() {
-  return this.options.xhtml ? '<hr/>\n' : '<hr>\n';
-};
-
-Renderer.prototype.list = function(body, ordered) {
-  var type = ordered ? 'ol' : 'ul';
-  return '<' + type + '>\n' + body + '</' + type + '>\n';
-};
-
-Renderer.prototype.listitem = function(text) {
-  return '<li>' + text + '</li>\n';
-};
-
-Renderer.prototype.paragraph = function(text) {
-  return '<p>' + text + '</p>\n';
-};
-
-Renderer.prototype.table = function(header, body) {
-  return '<table>\n'
-    + '<thead>\n'
-    + header
-    + '</thead>\n'
-    + '<tbody>\n'
-    + body
-    + '</tbody>\n'
-    + '</table>\n';
-};
-
-Renderer.prototype.tablerow = function(content) {
-  return '<tr>\n' + content + '</tr>\n';
-};
-
-Renderer.prototype.tablecell = function(content, flags) {
-  var type = flags.header ? 'th' : 'td';
-  var tag = flags.align
-    ? '<' + type + ' style="text-align:' + flags.align + '">'
-    : '<' + type + '>';
-  return tag + content + '</' + type + '>\n';
-};
-
-// span level renderer
-Renderer.prototype.strong = function(text) {
-  return '<strong>' + text + '</strong>';
-};
-
-Renderer.prototype.em = function(text) {
-  return '<em>' + text + '</em>';
-};
-
-Renderer.prototype.codespan = function(text) {
-  return '<code>' + text + '</code>';
-};
-
-Renderer.prototype.br = function() {
-  return this.options.xhtml ? '<br/>' : '<br>';
-};
-
-Renderer.prototype.del = function(text) {
-  return '<del>' + text + '</del>';
-};
-
-Renderer.prototype.link = function(href, title, text) {
-  if (this.options.sanitize) {
-    try {
-      var prot = decodeURIComponent(unescape(href))
-        .replace(/[^\w:]/g, '')
-        .toLowerCase();
-    } catch (e) {
-      return '';
-    }
-    if (prot.indexOf('javascript:') === 0 || prot.indexOf('vbscript:') === 0) {
-      return '';
-    }
-  }
-  var out = '<a href="' + href + '"';
-  if (title) {
-    out += ' title="' + title + '"';
-  }
-  out += '>' + text + '</a>';
-  return out;
-};
-
-Renderer.prototype.image = function(href, title, text) {
-  var out = '<img src="' + href + '" alt="' + text + '"';
-  if (title) {
-    out += ' title="' + title + '"';
-  }
-  out += this.options.xhtml ? '/>' : '>';
-  return out;
-};
-
-/**
  * Parsing & Compiling
  */
 
@@ -2797,17 +2583,14 @@ function Parser(options) {
   this.tokens = [];
   this.token = null;
   this.options = options || marked.defaults;
-  this.options.renderer = this.options.renderer || new Renderer;
-  this.renderer = this.options.renderer;
-  this.renderer.options = this.options;
 }
 
 /**
  * Static Parse Method
  */
 
-Parser.parse = function(src, options, renderer) {
-  var parser = new Parser(options, renderer);
+Parser.parse = function(src, options) {
+  var parser = new Parser(options);
   return parser.parse(src);
 };
 
@@ -2816,7 +2599,7 @@ Parser.parse = function(src, options, renderer) {
  */
 
 Parser.prototype.parse = function(src) {
-  this.inline = new InlineLexer(src.links, this.options, this.renderer);
+  this.inline = new InlineLexer(src.links, this.options);
   this.tokens = src.reverse();
 
   var out = '';
@@ -2840,7 +2623,7 @@ Parser.prototype.next = function() {
  */
 
 Parser.prototype.peek = function() {
-  return this.tokens[this.tokens.length - 1] || 0;
+  return this.tokens[this.tokens.length-1] || 0;
 };
 
 /**
@@ -2867,53 +2650,76 @@ Parser.prototype.tok = function() {
       return '';
     }
     case 'hr': {
-      return this.renderer.hr();
+      return '<hr>\n';
     }
     case 'heading': {
-      return this.renderer.heading(
-        this.inline.output(this.token.text),
-        this.token.depth,
-        this.token.text);
+      return '<h'
+        + this.token.depth
+        + '>'
+        + this.inline.output(this.token.text)
+        + '</h'
+        + this.token.depth
+        + '>\n';
     }
     case 'code': {
-      return this.renderer.code(this.token.text,
-        this.token.lang,
-        this.token.escaped);
+      if (this.options.highlight) {
+        var code = this.options.highlight(this.token.text, this.token.lang);
+        if (code != null && code !== this.token.text) {
+          this.token.escaped = true;
+          this.token.text = code;
+        }
+      }
+
+      if (!this.token.escaped) {
+        this.token.text = escape(this.token.text, true);
+      }
+
+      return '<pre><code'
+        + (this.token.lang
+        ? ' class="lang-'
+        + this.token.lang
+        + '"'
+        : '')
+        + '>'
+        + this.token.text
+        + '</code></pre>\n';
     }
     case 'table': {
-      var header = ''
-        , body = ''
+      var body = ''
+        , heading
         , i
         , row
         , cell
-        , flags
         , j;
 
       // header
-      cell = '';
+      body += '<thead>\n<tr>\n';
       for (i = 0; i < this.token.header.length; i++) {
-        flags = { header: true, align: this.token.align[i] };
-        cell += this.renderer.tablecell(
-          this.inline.output(this.token.header[i]),
-          { header: true, align: this.token.align[i] }
-        );
+        heading = this.inline.output(this.token.header[i]);
+        body += this.token.align[i]
+          ? '<th align="' + this.token.align[i] + '">' + heading + '</th>\n'
+          : '<th>' + heading + '</th>\n';
       }
-      header += this.renderer.tablerow(cell);
+      body += '</tr>\n</thead>\n';
 
+      // body
+      body += '<tbody>\n'
       for (i = 0; i < this.token.cells.length; i++) {
         row = this.token.cells[i];
-
-        cell = '';
+        body += '<tr>\n';
         for (j = 0; j < row.length; j++) {
-          cell += this.renderer.tablecell(
-            this.inline.output(row[j]),
-            { header: false, align: this.token.align[j] }
-          );
+          cell = this.inline.output(row[j]);
+          body += this.token.align[j]
+            ? '<td align="' + this.token.align[j] + '">' + cell + '</td>\n'
+            : '<td>' + cell + '</td>\n';
         }
-
-        body += this.renderer.tablerow(cell);
+        body += '</tr>\n';
       }
-      return this.renderer.table(header, body);
+      body += '</tbody>\n';
+
+      return '<table>\n'
+        + body
+        + '</table>\n';
     }
     case 'blockquote_start': {
       var body = '';
@@ -2922,17 +2728,25 @@ Parser.prototype.tok = function() {
         body += this.tok();
       }
 
-      return this.renderer.blockquote(body);
+      return '<blockquote>\n'
+        + body
+        + '</blockquote>\n';
     }
     case 'list_start': {
-      var body = ''
-        , ordered = this.token.ordered;
+      var type = this.token.ordered ? 'ol' : 'ul'
+        , body = '';
 
       while (this.next().type !== 'list_end') {
         body += this.tok();
       }
 
-      return this.renderer.list(body, ordered);
+      return '<'
+        + type
+        + '>\n'
+        + body
+        + '</'
+        + type
+        + '>\n';
     }
     case 'list_item_start': {
       var body = '';
@@ -2943,7 +2757,9 @@ Parser.prototype.tok = function() {
           : this.tok();
       }
 
-      return this.renderer.listitem(body);
+      return '<li>'
+        + body
+        + '</li>\n';
     }
     case 'loose_item_start': {
       var body = '';
@@ -2952,19 +2768,24 @@ Parser.prototype.tok = function() {
         body += this.tok();
       }
 
-      return this.renderer.listitem(body);
+      return '<li>'
+        + body
+        + '</li>\n';
     }
     case 'html': {
-      var html = !this.token.pre && !this.options.pedantic
+      return !this.token.pre && !this.options.pedantic
         ? this.inline.output(this.token.text)
         : this.token.text;
-      return this.renderer.html(html);
     }
     case 'paragraph': {
-      return this.renderer.paragraph(this.inline.output(this.token.text));
+      return '<p>'
+        + this.inline.output(this.token.text)
+        + '</p>\n';
     }
     case 'text': {
-      return this.renderer.paragraph(this.parseText());
+      return '<p>'
+        + this.parseText()
+        + '</p>\n';
     }
   }
 };
@@ -2980,19 +2801,6 @@ function escape(html, encode) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
-}
-
-function unescape(html) {
-  return html.replace(/&([#\w]+);/g, function(_, n) {
-    n = n.toLowerCase();
-    if (n === 'colon') return ':';
-    if (n.charAt(0) === '#') {
-      return n.charAt(1) === 'x'
-        ? String.fromCharCode(parseInt(n.substring(2), 16))
-        : String.fromCharCode(+n.substring(1));
-    }
-    return '';
-  });
 }
 
 function replace(regex, opt) {
@@ -3027,90 +2835,17 @@ function merge(obj) {
   return obj;
 }
 
-
 /**
  * Marked
  */
 
-function marked(src, opt, callback) {
-  if (callback || typeof opt === 'function') {
-    if (!callback) {
-      callback = opt;
-      opt = null;
-    }
-
-    opt = merge({}, marked.defaults, opt || {});
-
-    var highlight = opt.highlight
-      , tokens
-      , pending
-      , i = 0;
-
-    try {
-      tokens = Lexer.lex(src, opt)
-    } catch (e) {
-      return callback(e);
-    }
-
-    pending = tokens.length;
-
-    var done = function(err) {
-      if (err) {
-        opt.highlight = highlight;
-        return callback(err);
-      }
-
-      var out;
-
-      try {
-        out = Parser.parse(tokens, opt);
-      } catch (e) {
-        err = e;
-      }
-
-      opt.highlight = highlight;
-
-      return err
-        ? callback(err)
-        : callback(null, out);
-    };
-
-    if (!highlight || highlight.length < 3) {
-      return done();
-    }
-
-    delete opt.highlight;
-
-    if (!pending) return done();
-
-    for (; i < tokens.length; i++) {
-      (function(token) {
-        if (token.type !== 'code') {
-          return --pending || done();
-        }
-        return highlight(token.text, token.lang, function(err, code) {
-          if (err) return done(err);
-          if (code == null || code === token.text) {
-            return --pending || done();
-          }
-          token.text = code;
-          token.escaped = true;
-          --pending || done();
-        });
-      })(tokens[i]);
-    }
-
-    return;
-  }
+function marked(src, opt) {
   try {
-    if (opt) opt = merge({}, marked.defaults, opt);
     return Parser.parse(Lexer.lex(src, opt), opt);
   } catch (e) {
     e.message += '\nPlease report this to https://github.com/chjj/marked.';
     if ((opt || marked.defaults).silent) {
-      return '<p>An error occured:</p><pre>'
-        + escape(e.message + '', true)
-        + '</pre>';
+      return 'An error occured:\n' + e.message;
     }
     throw e;
   }
@@ -3122,7 +2857,7 @@ function marked(src, opt, callback) {
 
 marked.options =
 marked.setOptions = function(opt) {
-  merge(marked.defaults, opt);
+  marked.defaults = opt;
   return marked;
 };
 
@@ -3132,14 +2867,8 @@ marked.defaults = {
   breaks: false,
   pedantic: false,
   sanitize: false,
-  smartLists: false,
   silent: false,
-  highlight: null,
-  langPrefix: 'lang-',
-  smartypants: false,
-  headerPrefix: '',
-  renderer: new Renderer,
-  xhtml: false
+  highlight: null
 };
 
 /**
@@ -3149,8 +2878,6 @@ marked.defaults = {
 marked.Parser = Parser;
 marked.parser = Parser.parse;
 
-marked.Renderer = Renderer;
-
 marked.Lexer = Lexer;
 marked.lexer = Lexer.lex;
 
@@ -3159,7 +2886,7 @@ marked.inlineLexer = InlineLexer.output;
 
 marked.parse = marked;
 
-if (typeof module !== 'undefined' && typeof exports === 'object') {
+if (typeof module !== 'undefined') {
   module.exports = marked;
 } else if (typeof define === 'function' && define.amd) {
   define(function() { return marked; });

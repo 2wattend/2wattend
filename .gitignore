@@ -6,3 +6,4 @@
 auth.json
 adminer.php
 Vagrantfile
+*.html
